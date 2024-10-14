@@ -21,7 +21,7 @@
     <!-- Guest Dialog -->
     <GuestDialog
       v-model="guestDialog"
-      @submit="saveChangesAsGuest"
+      @submit="handleGuestDialogSubmit"
       :event="event"
       :respondents="Object.keys(event.responses)"
     />
@@ -174,7 +174,10 @@
                 <v-icon class="tw-text-green" v-else>mdi-share</v-icon>
               </v-btn>
             </div>
-            <div v-if="!isPhone && (!isSignUp || canEdit)" class="tw-flex tw-w-40">
+            <div
+              v-if="!isPhone && (!isSignUp || canEdit)"
+              class="tw-flex tw-w-40"
+            >
               <template v-if="!isEditing">
                 <v-btn
                   v-if="!isGroup && !authUser && selectedGuestRespondent"
@@ -198,9 +201,7 @@
                   :style="{ opacity: availabilityBtnOpacity }"
                   @click="() => addAvailability()"
                 >
-                  {{
-                    actionButtonText
-                  }}
+                  {{ actionButtonText }}
                 </v-btn>
               </template>
               <template v-else>
@@ -246,6 +247,7 @@
         @highlightAvailabilityBtn="highlightAvailabilityBtn"
         @deleteAvailability="deleteAvailability"
         @setCurGuestId="(id) => (curGuestId = id)"
+        @signUpForBlock="signUpForBlock"
       />
     </div>
 
@@ -346,6 +348,7 @@
 <script>
 import {
   get,
+  post,
   signInGoogle,
   signInOutlook,
   isPhone,
@@ -415,6 +418,9 @@ export default {
 
     // Availability Groups
     calendarAvailabilities: {}, // maps userId to their calendar events
+
+    // Sign Up Forms
+    currSignUpBlockId: null,
   }),
 
   mounted() {
@@ -465,9 +471,9 @@ export default {
       return this.event?.isSignUpForm
     },
     eventType() {
-      if (this.isGroup) return 'group'
-      else if (this.isSignUp) return 'signup'
-      else return 'event'
+      if (this.isGroup) return "group"
+      else if (this.isSignUp) return "signup"
+      else return "event"
     },
     areUnsavedChanges() {
       return this.scheduleOverlapComponent?.unsavedChanges
@@ -661,7 +667,8 @@ export default {
         return
       }
       console.log("GOT HERE!!!")
-      if (this.isSignUp) await this.scheduleOverlapComponent.submitNewSignUpBlocks();
+      if (this.isSignUp)
+        await this.scheduleOverlapComponent.submitNewSignUpBlocks()
       else await this.scheduleOverlapComponent.submitAvailability()
 
       this.showInfo("Changes saved!")
@@ -854,6 +861,49 @@ export default {
 
       delete e["returnValue"]
     },
+
+    handleGuestDialogSubmit(guestPayload) {
+      if (!this.isSignUp) {
+        this.saveChangesAsGuest(guestPayload)
+      } else {
+        this.signUpForBlock(this.currSignUpBlockId, guestPayload)
+      }
+    },
+
+    // -----------------------------------
+    //#region Sign Up Form
+    // -----------------------------------
+
+    async signUpForBlock(signUpBlockId, guestPayload = null) {
+      console.log("CALLING SIGN UP BLOCK", signUpBlockId)
+      if (this.authUser) {
+        const payload = {
+          guest: false,
+          signUpBlockIds: [signUpBlockId],
+        }
+        await post(`/events/${this.event._id}/response`, payload)
+          await this.refreshEvent()
+          this.scheduleOverlapComponent.reloadSignUpForm()
+      } else {
+        if (!guestPayload) {
+          /** The user is not signed in, retrieve guest information */
+          this.currSignUpBlockId = signUpBlockId
+          this.guestDialog = true
+        } else {
+          const payload = {
+            guest: true,
+            signUpBlockIds: [signUpBlockId],
+            ...guestPayload,
+          }
+          await post(`/events/${this.event._id}/response`, payload)
+
+          await this.refreshEvent()
+          this.scheduleOverlapComponent.reloadSignUpForm()
+        }
+      }
+    },
+
+    //#endregion
   },
 
   async created() {
